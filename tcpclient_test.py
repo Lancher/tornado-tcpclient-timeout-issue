@@ -163,17 +163,18 @@ class TCPClientTest(AsyncTestCase):
 
     @gen_test
     def test_connect_timeout(self):
-        timeout = 0.02
-        timeout_min = self.io_loop.time() + 0.01
-        timeout_max = self.io_loop.time() + 0.03
+        timeout = 0.05
+        timeout_min, timeout_max = 0.04, 0.10
 
         class TimeoutResolver(Resolver):
             def resolve(self, *args, **kwargs):
                 return Future()  # never completes
+        start_time = self.io_loop.time()
         with self.assertRaises(TimeoutError):
             yield TCPClient(resolver=TimeoutResolver()).connect(
                 '8.8.8.8', 12345, timeout=timeout)
-        self.assertTrue(timeout_min < self.io_loop.time() < timeout_max)
+        end_time = self.io_loop.time()
+        self.assertTrue(timeout_min < end_time - start_time < timeout_max)
 
 
 if __name__ == "__main__":
