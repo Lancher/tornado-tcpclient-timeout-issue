@@ -58,9 +58,9 @@ class TCPClient(object):
         """
         if timeout is not None:
             if isinstance(timeout, numbers.Real):
-                timeout = time.time() + timeout
+                timeout = IOLoop.current().time() + timeout
             elif isinstance(timeout, datetime.timedelta):
-                timeout = time.time() + timedelta_to_seconds(timeout)
+                timeout = IOLoop.current() + timedelta_to_seconds(timeout)
             else:
                 raise TypeError("Unsupported timeout %r" % timeout)
         if timeout is not None:
@@ -117,7 +117,7 @@ class TCPClient(object):
             fu.set_exception(e)
             return fu
         else:
-            return stream.connect(addr)
+            return stream, stream.connect(addr)
 
 
 def fake_addrinfo_1():

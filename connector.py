@@ -63,6 +63,7 @@ class _Connector(object):
         self.last_error = None
         self.remaining = len(addrinfo)
         self.primary_addrs, self.secondary_addrs = self.split(addrinfo)
+        self.streams = set()
 
     @staticmethod
     def split(addrinfo):
@@ -102,7 +103,8 @@ class _Connector(object):
                 self.future.set_exception(self.last_error or
                                           IOError("connection failed"))
             return
-        future = self.connect(af, addr)
+        stream, future = self.connect(af, addr)
+        self.streams.add(stream)
         future.add_done_callback(functools.partial(self.on_connect_done,
                                                    addrs, af, addr))
 
@@ -123,13 +125,14 @@ class _Connector(object):
                 self.io_loop.remove_timeout(self.timeout)
                 self.on_timeout()
             return
-        self.clear_timeout()
-        self.clear_connect_timeout()
+        self.clear_timeouts()
         if self.future.done():
             # This is a late arrival; just drop it.
             stream.close()
         else:
+            self.streams.discard(stream)
             self.future.set_result((af, addr, stream))
+            self.close_streams()
 
     def set_timeout(self, timeout):
         self.timeout = self.io_loop.add_timeout(self.io_loop.time() + timeout,
@@ -140,10 +143,6 @@ class _Connector(object):
         if not self.future.done():
             self.try_connect(iter(self.secondary_addrs))
 
-    def clear_timeout(self):
-        if self.timeout is not None:
-            self.io_loop.remove_timeout(self.timeout)
-
     def set_connect_timeout(self, connect_timeout):
         self.connect_timeout = self.io_loop.add_timeout(
             connect_timeout, self.on_connect_timeout)
@@ -151,22 +150,29 @@ class _Connector(object):
     def on_connect_timeout(self):
         if not self.future.done():
             self.future.set_exception(TimeoutError())
+        self.close_streams()
 
-    def clear_connect_timeout(self):
+    def clear_timeouts(self):
+        if self.timeout is not None:
+            self.io_loop.remove_timeout(self.timeout)
         if self.connect_timeout is not None:
             self.io_loop.remove_timeout(self.connect_timeout)
+
+    def close_streams(self):
+        for stream in self.streams:
+            stream.close()
 
 
 def create_stream(af, addr):
     stream = IOStream(socket.socket(af))
-    return stream.connect(addr)
+    return stream, stream.connect(addr)
 
 
 def fake_addrinfo_1():
     # private address
     return [
         (2, ('192.168.0.1', 80)),
-        (2, ('192.168.0.2', 80)),
+        (10, ('2404:6800:4008:c07::67', 80, 0, 0))
     ]
 
 
@@ -200,9 +206,16 @@ def runner():
     logging.info(addrinfo)
     connector = _Connector(addrinfo, create_stream)
     try:
-        af, addr, stream = yield connector.start(connect_timeout=IOLoop.current().time()+0.1)
+        af, addr, stream = yield connector.start(connect_timeout=IOLoop.current().time()+3)
+        logging.info('got stream')
     except TimeoutError as e:
         logging.info('fuck up timeout')
+    logging.info(len(connector.streams))
+    for s in connector.streams:
+        logging.info(s.closed())
+    logging.info('-----------------')
+    logging.info(stream.closed())
+    stream.close()
 
 
 def main():
